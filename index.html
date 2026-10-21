@@ -1,1 +1,827 @@
-# music
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>我的乐谱与音频库 - 永久保存版</title>
+    <style>
+        :root {
+            --primary-color: #4a90e2;
+            --bg-color: #f5f7fa;
+            --card-bg: #ffffff;
+            --text-color: #333;
+            --danger-color: #e74c3c;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg-color);
+            margin: 0;
+            padding: 20px;
+            color: var(--text-color);
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            text-align: center;
+            color: var(--primary-color);
+            margin-bottom: 30px;
+        }
+
+        /* 上传区域样式 */
+        .upload-section {
+            background: var(--card-bg);
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            margin-bottom: 30px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            align-items: flex-end;
+        }
+
+        .input-group {
+            display: flex;
+            flex-direction: column;
+            flex: 1;
+            min-width: 200px;
+        }
+
+        label {
+            margin-bottom: 5px;
+            font-weight: bold;
+            font-size: 14px;
+            color: #555;
+        }
+
+        input[type="text"], input[type="file"] {
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 14px;
+            width: 100%;
+            box-sizing: border-box;
+        }
+
+        button {
+            padding: 10px 20px;
+            background-color: var(--primary-color);
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 16px;
+            transition: background 0.3s;
+            height: 42px;
+        }
+
+        button:hover {
+            background-color: #357abd;
+        }
+
+        button.delete-btn {
+            background-color: #f1f1f1;
+            color: #333;
+            padding: 8px 16px;
+            font-size: 13px;
+            margin-top: 10px;
+            border: 1px solid #ddd;
+        }
+
+        button.delete-btn:hover {
+            background-color: #e74c3c;
+            color: white;
+            border-color: #e74c3c;
+        }
+
+        /* 曲目录目样式 */
+        .library-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+            gap: 20px;
+        }
+
+        .music-card {
+            background: var(--card-bg);
+            border-radius: 12px;
+            padding: 15px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+            transition: transform 0.2s;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .music-card:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        }
+
+        .music-title {
+            font-size: 18px;
+            font-weight: bold;
+            margin-bottom: 10px;
+            color: #2c3e50;
+            word-break: break-all;
+        }
+
+        /* 媒体展示区 */
+        .media-container {
+            width: 100%;
+            margin-bottom: 10px;
+            background: #000;
+            border-radius: 8px;
+            overflow: hidden;
+            min-height: 150px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .media-container img {
+            width: 100%;
+            height: auto;
+            display: block;
+            max-height: 400px;
+            object-fit: contain;
+        }
+
+        .media-container video, .media-container audio {
+            width: 100%;
+            max-height: 300px;
+        }
+
+        .empty-state {
+            text-align: center;
+            color: #888;
+            grid-column: 1 / -1;
+            padding: 50px;
+            background: var(--card-bg);
+            border-radius: 12px;
+        }
+
+        .status-msg {
+            text-align: center;
+            margin-top: 10px;
+            font-size: 14px;
+            color: #666;
+            min-height: 20px;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>🎵 我的音乐典藏库</h1>
+
+    <!-- 上传表单 -->
+    <div class="upload-section">
+        <div class="input-group">
+            <label>曲目名称 *</label>
+            <input type="text" id="titleInput" placeholder="例如：贝多芬月光奏鸣曲">
+        </div>
+        <div class="input-group">
+            <label>乐谱图片 (可选，支持 JPG/PNG)</label>
+            <input type="file" id="imageInput" accept="image/*">
+        </div>
+        <div class="input-group">
+            <label>原曲音频/视频 (可选，支持 MP4/MP3/MOV等)</label>
+            <input type="file" id="mediaInput" accept="audio/*,video/*">
+        </div>
+        <button onclick="addTrack()">添加到库</button>
+    </div>
+    <div id="statusMsg" class="status-msg"></div>
+
+    <!-- 曲目录目 -->
+    <div id="library" class="library-grid">
+        <!-- 内容将通过 JS 动态生成 -->
+    </div>
+</div>
+
+<script>
+    // 数据库配置
+    const DB_NAME = 'MusicLibraryDB_V2'; // 版本号加V2以防旧缓存冲突
+    const DB_VERSION = 1;
+    const STORE_NAME = 'tracks';
+    let db;
+
+    // 初始化
+    const request = indexedDB.open(DB_NAME, DB_VERSION);
+
+    request.onerror = (event) => {
+        console.error("数据库错误:", event.target.errorCode);
+        showStatus('数据库打开失败，请尝试使用 Chrome/Edge 浏览器');
+    };
+
+    request.onsuccess = (event) => {
+        db = event.target.result;
+        console.log('数据库连接成功');
+        loadTracks();
+    };
+
+    request.onupgradeneeded = (event) => {
+        db = event.target.result;
+        if (!db.objectStoreNames.contains(STORE_NAME)) {
+            // 创建对象存储，keyPath 为 id，自动递增
+            db.createObjectStore(STORE_NAME, { keyPath: 'id', autoIncrement: true });
+        }
+    };
+
+    // 添加曲目
+    function addTrack() {
+        const titleInput = document.getElementById('titleInput');
+        const imageInput = document.getElementById('imageInput');
+        const mediaInput = document.getElementById('mediaInput');
+        const title = titleInput.value.trim();
+
+        if (!title) {
+            alert('请输入曲目名称');
+            return;
+        }
+
+        const imageFile = imageInput.files[0];
+        const mediaFile = mediaInput.files[0];
+
+        showStatus('正在保存...');
+
+        // 创建事务
+        const transaction = db.transaction([STORE_NAME], 'readwrite');
+        const objectStore = transaction.objectStore(STORE_NAME);
+
+        // 准备数据对象
+        const track = {
+            title: title,
+            createdAt: new Date().toISOString(),
+            imageData: null, // 存 Blob
+            mediaData: null, // 存 Blob
+            mediaType: null  // 存 MIME 类型
+        };
+
+        // 辅助函数：保存单个 track
+        function saveTrackToDB() {
+            const addRequest = objectStore.add(track);
+            addRequest.onsuccess = () => {
+                showStatus('✅ 保存成功！');
+                titleInput.value = '';
+                imageInput.value = '';
+                mediaInput.value = '';
+                loadTracks();
+            };
+            addRequest.onerror = () => {
+                showStatus('❌ 保存失败，请重试');
+                console.error("保存错误");
+            };
+        }
+
+        // 处理图片
+        if (imageFile) {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                // 将 ArrayBuffer 转换为 Blob 存储，避免 Base64 内存溢出
+                track.imageData = new Blob([e.target.result], { type: imageFile.type });
+                
+                // 处理媒体文件（如果也有）
+                if (mediaFile) {
+                    track.mediaType = mediaFile.type;
+                    // 直接存 File 对象也可以，但为了统一转 Blob
+                    track.mediaData = new Blob([mediaFile], { type: mediaFile.type });
+                }
+                saveTrackToDB();
+            };
+            reader.readAsArrayBuffer(imageFile);
+        } 
+        // 只处理媒体文件
+        else if (mediaFile) {
+            track.mediaType = mediaFile.type;
+            track.mediaData = new Blob([mediaFile], { type: mediaFile.type });
+            saveTrackToDB();
+        } 
+        // 都没有文件
+        else {
+            saveTrackToDB();
+        }
+    }
+
+    // 加载并渲染曲目
+    function loadTracks() {
+        if (!db) return;
+
+        const transaction = db.transaction([STORE_NAME], 'readonly');
+        const objectStore = transaction.objectStore(STORE_NAME);
+        const request = objectStore.getAll();
+
+        request.onsuccess = () => {
+            const tracks = request.result;
+            renderLibrary(tracks);
+        };
+    }
+
+    // 渲染列表
+    function renderLibrary(tracks) {
+        const container = document.getElementById('library');
+        container.innerHTML = '';
+
+        if (tracks.length === 0) {
+            container.innerHTML = '<div class="empty-state">库里还是空的，快上传你的第一首曲子吧！<br><small>（数据保存在本地浏览器，清除缓存会丢失）</small></div>';
+            return;
+        }
+
+        // 按时间倒序排列（最新的在前）
+        tracks.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+        tracks.forEach(track => {
+            const card = document.createElement('div');
+            card.className = 'music-card';
+
+            let mediaHTML = '';
+
+            // 渲染图片
+            if (track.imageData) {
+                // 从 Blob 创建 URL
+                const imgUrl = URL.createObjectURL(track.imageData);
+                mediaHTML += `<div class="media-container"><img src="${imgUrl}" alt="乐谱" loading="lazy"></div>`;
+            }
+
+            // 渲染视频/音频
+            if (track.mediaData) {
+                const mediaUrl = URL.createObjectURL(track.mediaData);
+                if (track.mediaType && track.mediaType.startsWith('video/')) {
+                    mediaHTML += `<div class="media-container"><video controls src="${mediaUrl}"></video></div>`;
+                } else {
+                    mediaHTML += `<div class="media-container"><audio controls src="${mediaUrl}"></audio></div>`;
+                }
+            }
+
+            if (!mediaHTML) {
+                mediaHTML = '<div class="media-container" style="background:#eee; color:#aaa; height:100px; display:flex; align-items:center; justify-content:center;">暂无媒体文件（仅文字标题）</div>';
+            }
+
+            card.innerHTML = `
+                <div class="music-title">${escapeHtml(track.title)}</div>
+                ${mediaHTML}
+                <button class="delete-btn" onclick="deleteTrack(${track.id})">🗑️ 删除</button>
+            `;
+            container.appendChild(card);
+        });
+    }
+
+    // 删除曲目
+    function deleteTrack(id) {
+        if(!confirm('确定要删除这首曲子吗？此操作不可恢复。')) return;
+        
+        const transaction = db.transaction([STORE_NAME], 'readwrite');
+        const objectStore = transaction.objectStore(STORE_NAME);
+        const request = objectStore.delete(id);
+        
+        request.onsuccess = () => {
+            showStatus('已删除');
+            loadTracks();
+        };
+        
+        request.onerror = () => {
+            showStatus('删除失败');
+        };
+    }
+
+    // 显示状态消息
+    function showStatus(msg) {
+        const el = document.getElementById('statusMsg');
+        el.textContent = msg;
+        if (msg.startsWith('✅') || msg.startsWith('❌')) {
+            setTimeout(() => {
+                el.textContent = '';
+            }, 3000);
+        }
+    }
+
+    // 防止 XSS 攻击
+    function escapeHtml(text) {
+        if (!text) return text;
+        return text
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#039;");
+    }
+</script>
+
+</body>
+</html><!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>我的乐谱与音频库 - 永久保存版</title>
+    <style>
+        :root {
+            --primary-color: #4a90e2;
+            --bg-color: #f5f7fa;
+            --card-bg: #ffffff;
+            --text-color: #333;
+            --danger-color: #e74c3c;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg-color);
+            margin: 0;
+            padding: 20px;
+            color: var(--text-color);
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            text-align: center;
+            color: var(--primary-color);
+            margin-bottom: 30px;
+        }
+
+        /* 上传区域样式 */
+        .upload-section {
+            background: var(--card-bg);
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            margin-bottom: 30px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            align-items: flex-end;
+        }
+
+        .input-group {
+            display: flex;
+            flex-direction: column;
+            flex: 1;
+            min-width: 200px;
+        }
+
+        label {
+            margin-bottom: 5px;
+            font-weight: bold;
+            font-size: 14px;
+            color: #555;
+        }
+
+        input[type="text"], input[type="file"] {
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 14px;
+            width: 100%;
+            box-sizing: border-box;
+        }
+
+        button {
+            padding: 10px 20px;
+            background-color: var(--primary-color);
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 16px;
+            transition: background 0.3s;
+            height: 42px;
+        }
+
+        button:hover {
+            background-color: #357abd;
+        }
+
+        button.delete-btn {
+            background-color: #f1f1f1;
+            color: #333;
+            padding: 8px 16px;
+            font-size: 13px;
+            margin-top: 10px;
+            border: 1px solid #ddd;
+        }
+
+        button.delete-btn:hover {
+            background-color: #e74c3c;
+            color: white;
+            border-color: #e74c3c;
+        }
+
+        /* 曲目录目样式 */
+        .library-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+            gap: 20px;
+        }
+
+        .music-card {
+            background: var(--card-bg);
+            border-radius: 12px;
+            padding: 15px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+            transition: transform 0.2s;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .music-card:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        }
+
+        .music-title {
+            font-size: 18px;
+            font-weight: bold;
+            margin-bottom: 10px;
+            color: #2c3e50;
+            word-break: break-all;
+        }
+
+        /* 媒体展示区 */
+        .media-container {
+            width: 100%;
+            margin-bottom: 10px;
+            background: #000;
+            border-radius: 8px;
+            overflow: hidden;
+            min-height: 150px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .media-container img {
+            width: 100%;
+            height: auto;
+            display: block;
+            max-height: 400px;
+            object-fit: contain;
+        }
+
+        .media-container video, .media-container audio {
+            width: 100%;
+            max-height: 300px;
+        }
+
+        .empty-state {
+            text-align: center;
+            color: #888;
+            grid-column: 1 / -1;
+            padding: 50px;
+            background: var(--card-bg);
+            border-radius: 12px;
+        }
+
+        .status-msg {
+            text-align: center;
+            margin-top: 10px;
+            font-size: 14px;
+            color: #666;
+            min-height: 20px;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>🎵 我的音乐典藏库</h1>
+
+    <!-- 上传表单 -->
+    <div class="upload-section">
+        <div class="input-group">
+            <label>曲目名称 *</label>
+            <input type="text" id="titleInput" placeholder="例如：贝多芬月光奏鸣曲">
+        </div>
+        <div class="input-group">
+            <label>乐谱图片 (可选，支持 JPG/PNG)</label>
+            <input type="file" id="imageInput" accept="image/*">
+        </div>
+        <div class="input-group">
+            <label>原曲音频/视频 (可选，支持 MP4/MP3/MOV等)</label>
+            <input type="file" id="mediaInput" accept="audio/*,video/*">
+        </div>
+        <button onclick="addTrack()">添加到库</button>
+    </div>
+    <div id="statusMsg" class="status-msg"></div>
+
+    <!-- 曲目录目 -->
+    <div id="library" class="library-grid">
+        <!-- 内容将通过 JS 动态生成 -->
+    </div>
+</div>
+
+<script>
+    // 数据库配置
+    const DB_NAME = 'MusicLibraryDB_V2'; // 版本号加V2以防旧缓存冲突
+    const DB_VERSION = 1;
+    const STORE_NAME = 'tracks';
+    let db;
+
+    // 初始化
+    const request = indexedDB.open(DB_NAME, DB_VERSION);
+
+    request.onerror = (event) => {
+        console.error("数据库错误:", event.target.errorCode);
+        showStatus('数据库打开失败，请尝试使用 Chrome/Edge 浏览器');
+    };
+
+    request.onsuccess = (event) => {
+        db = event.target.result;
+        console.log('数据库连接成功');
+        loadTracks();
+    };
+
+    request.onupgradeneeded = (event) => {
+        db = event.target.result;
+        if (!db.objectStoreNames.contains(STORE_NAME)) {
+            // 创建对象存储，keyPath 为 id，自动递增
+            db.createObjectStore(STORE_NAME, { keyPath: 'id', autoIncrement: true });
+        }
+    };
+
+    // 添加曲目
+    function addTrack() {
+        const titleInput = document.getElementById('titleInput');
+        const imageInput = document.getElementById('imageInput');
+        const mediaInput = document.getElementById('mediaInput');
+        const title = titleInput.value.trim();
+
+        if (!title) {
+            alert('请输入曲目名称');
+            return;
+        }
+
+        const imageFile = imageInput.files[0];
+        const mediaFile = mediaInput.files[0];
+
+        showStatus('正在保存...');
+
+        // 创建事务
+        const transaction = db.transaction([STORE_NAME], 'readwrite');
+        const objectStore = transaction.objectStore(STORE_NAME);
+
+        // 准备数据对象
+        const track = {
+            title: title,
+            createdAt: new Date().toISOString(),
+            imageData: null, // 存 Blob
+            mediaData: null, // 存 Blob
+            mediaType: null  // 存 MIME 类型
+        };
+
+        // 辅助函数：保存单个 track
+        function saveTrackToDB() {
+            const addRequest = objectStore.add(track);
+            addRequest.onsuccess = () => {
+                showStatus('✅ 保存成功！');
+                titleInput.value = '';
+                imageInput.value = '';
+                mediaInput.value = '';
+                loadTracks();
+            };
+            addRequest.onerror = () => {
+                showStatus('❌ 保存失败，请重试');
+                console.error("保存错误");
+            };
+        }
+
+        // 处理图片
+        if (imageFile) {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                // 将 ArrayBuffer 转换为 Blob 存储，避免 Base64 内存溢出
+                track.imageData = new Blob([e.target.result], { type: imageFile.type });
+                
+                // 处理媒体文件（如果也有）
+                if (mediaFile) {
+                    track.mediaType = mediaFile.type;
+                    // 直接存 File 对象也可以，但为了统一转 Blob
+                    track.mediaData = new Blob([mediaFile], { type: mediaFile.type });
+                }
+                saveTrackToDB();
+            };
+            reader.readAsArrayBuffer(imageFile);
+        } 
+        // 只处理媒体文件
+        else if (mediaFile) {
+            track.mediaType = mediaFile.type;
+            track.mediaData = new Blob([mediaFile], { type: mediaFile.type });
+            saveTrackToDB();
+        } 
+        // 都没有文件
+        else {
+            saveTrackToDB();
+        }
+    }
+
+    // 加载并渲染曲目
+    function loadTracks() {
+        if (!db) return;
+
+        const transaction = db.transaction([STORE_NAME], 'readonly');
+        const objectStore = transaction.objectStore(STORE_NAME);
+        const request = objectStore.getAll();
+
+        request.onsuccess = () => {
+            const tracks = request.result;
+            renderLibrary(tracks);
+        };
+    }
+
+    // 渲染列表
+    function renderLibrary(tracks) {
+        const container = document.getElementById('library');
+        container.innerHTML = '';
+
+        if (tracks.length === 0) {
+            container.innerHTML = '<div class="empty-state">库里还是空的，快上传你的第一首曲子吧！<br><small>（数据保存在本地浏览器，清除缓存会丢失）</small></div>';
+            return;
+        }
+
+        // 按时间倒序排列（最新的在前）
+        tracks.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+        tracks.forEach(track => {
+            const card = document.createElement('div');
+            card.className = 'music-card';
+
+            let mediaHTML = '';
+
+            // 渲染图片
+            if (track.imageData) {
+                // 从 Blob 创建 URL
+                const imgUrl = URL.createObjectURL(track.imageData);
+                mediaHTML += `<div class="media-container"><img src="${imgUrl}" alt="乐谱" loading="lazy"></div>`;
+            }
+
+            // 渲染视频/音频
+            if (track.mediaData) {
+                const mediaUrl = URL.createObjectURL(track.mediaData);
+                if (track.mediaType && track.mediaType.startsWith('video/')) {
+                    mediaHTML += `<div class="media-container"><video controls src="${mediaUrl}"></video></div>`;
+                } else {
+                    mediaHTML += `<div class="media-container"><audio controls src="${mediaUrl}"></audio></div>`;
+                }
+            }
+
+            if (!mediaHTML) {
+                mediaHTML = '<div class="media-container" style="background:#eee; color:#aaa; height:100px; display:flex; align-items:center; justify-content:center;">暂无媒体文件（仅文字标题）</div>';
+            }
+
+            card.innerHTML = `
+                <div class="music-title">${escapeHtml(track.title)}</div>
+                ${mediaHTML}
+                <button class="delete-btn" onclick="deleteTrack(${track.id})">🗑️ 删除</button>
+            `;
+            container.appendChild(card);
+        });
+    }
+
+    // 删除曲目
+    function deleteTrack(id) {
+        if(!confirm('确定要删除这首曲子吗？此操作不可恢复。')) return;
+        
+        const transaction = db.transaction([STORE_NAME], 'readwrite');
+        const objectStore = transaction.objectStore(STORE_NAME);
+        const request = objectStore.delete(id);
+        
+        request.onsuccess = () => {
+            showStatus('已删除');
+            loadTracks();
+        };
+        
+        request.onerror = () => {
+            showStatus('删除失败');
+        };
+    }
+
+    // 显示状态消息
+    function showStatus(msg) {
+        const el = document.getElementById('statusMsg');
+        el.textContent = msg;
+        if (msg.startsWith('✅') || msg.startsWith('❌')) {
+            setTimeout(() => {
+                el.textContent = '';
+            }, 3000);
+        }
+    }
+
+    // 防止 XSS 攻击
+    function escapeHtml(text) {
+        if (!text) return text;
+        return text
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#039;");
+    }
+</script>
+
+</body>
+</html>
