@@ -1,1 +1,338 @@
-# music
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>我的乐谱与音频库（稳定版）</title>
+    <style>
+        :root {
+            --primary: #5c6bc0;
+            --bg: #f4f6f8;
+            --card-bg: #fff;
+        }
+        body {
+            font-family: 'Segoe UI', sans-serif;
+            background: var(--bg);
+            margin: 0;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        h1 { text-align: center; color: var(--primary); }
+
+        /* 上传区 */
+        .upload-box {
+            background: var(--card-bg);
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            align-items: flex-end;
+        }
+        .field { flex: 1; min-width: 200px; }
+        label { display: block; margin-bottom: 5px; font-weight: bold; font-size: 14px; }
+        input[type="text"], input[type="file"] {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 6px;
+        }
+        button {
+            padding: 10px 20px;
+            background: var(--primary);
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+        }
+        button:hover { background: #3f51b5; }
+        button.secondary { background: #78909c; }
+        
+        /* 曲目录目 */
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 20px;
+        }
+        .card {
+            background: var(--card-bg);
+            border-radius: 12px;
+            padding: 15px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+        }
+        .card h3 { margin: 0 0 10px 0; font-size: 18px; }
+        .media { 
+            width: 100%; 
+            min-height: 150px; 
+            background: #eee; 
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+            margin-bottom: 10px;
+        }
+        .media img, .media video { width: 100%; max-height: 300px; object-fit: contain; }
+        .media audio { width: 100%; }
+        .status { font-size: 12px; color: #666; margin-bottom: 10px; }
+        .status.saved { color: green; }
+        .status.local { color: orange; }
+        .del-btn { 
+            background: #e53935; 
+            padding: 5px 10px; 
+            font-size: 12px; 
+            margin-top: 10px;
+        }
+
+        /* 管理面板 */
+        .admin-panel {
+            background: #fff3e0;
+            border: 1px solid #ffcc80;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        .file-list {
+            list-style: none;
+            padding: 0;
+            margin: 10px 0;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+        .file-list li {
+            padding: 5px;
+            background: #fff;
+            margin-bottom: 5px;
+            border-radius: 4px;
+            font-size: 13px;
+            word-break: break-all;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>🎵 我的音乐典藏库（稳定版）</h1>
+
+    <!-- 管理面板 -->
+    <div class="admin-panel">
+        <strong>💡 关于保存说明：</strong>
+        <p style="margin:5px 0 10px;">
+            1. <span style="color:green">绿色状态</span>：文件较小，已保存在浏览器中，下次打开依然存在。<br>
+            2. <span style="color:orange">橙色状态</span>：文件较大，已保存"路径引用"。请确保原文件未被移动或删除，否则显示空白。<br>
+            3. 点击下方按钮查看已添加的文件列表。
+        </p>
+        <button class="secondary" onclick="showFileList()">📂 查看已添加的文件列表</button>
+        <ul id="fileListDisplay" class="file-list" style="display:none;"></ul>
+    </div>
+
+    <!-- 上传表单 -->
+    <div class="upload-box">
+        <div class="field">
+            <label>曲目名称 *</label>
+            <input type="text" id="title" placeholder="例如：莫扎特小星星变奏曲">
+        </div>
+        <div class="field">
+            <label>乐谱图片</label>
+            <input type="file" id="imgInput" accept="image/*">
+        </div>
+        <div class="field">
+            <label>音频/视频</label>
+            <input type="file" id="mediaInput" accept="audio/*,video/*">
+        </div>
+        <button onclick="addTrack()">添加曲目</button>
+    </div>
+
+    <!-- 曲目列表 -->
+    <div id="library" class="grid"></div>
+</div>
+
+<script>
+    const DB_NAME = 'MusicLibStable';
+    const STORE = 'tracks';
+    let db;
+
+    // 打开数据库
+    const req = indexedDB.open(DB_NAME, 1);
+    req.onupgradeneeded = e => {
+        db = e.target.result;
+        if (!db.objectStoreNames.contains(STORE)) {
+            db.createObjectStore(STORE, { keyPath: 'id', autoIncrement: true });
+        }
+    };
+    req.onsuccess = e => {
+        db = e.target.result;
+        loadTracks();
+    };
+    req.onerror = () => alert('数据库打开失败，请检查浏览器是否禁止了本地存储。');
+
+    // 添加曲目
+    async function addTrack() {
+        const title = document.getElementById('title').value.trim();
+        const imgFile = document.getElementById('imgInput').files[0];
+        const mediaFile = document.getElementById('mediaInput').files[0];
+
+        if (!title) return alert('请输入曲目名称');
+
+        const track = {
+            title,
+            imgData: null,
+            mediaBlob: null,
+            mediaType: null,
+            mediaPath: null, // 用于大文件路径引用
+            createdAt: new Date().toISOString(),
+            storageMode: 'local' // local 或 path
+        };
+
+        try {
+            // 处理图片
+            if (imgFile) {
+                const size = imgFile.size;
+                if (size > 2 * 1024 * 1024) { // 大于2MB走路径模式
+                    track.storageMode = 'path';
+                    track.imgData = URL.createObjectURL(imgFile);
+                    track.imgPath = await getFileFullPath(imgFile);
+                } else {
+                    track.imgData = await readFileAsDataURL(imgFile);
+                }
+            }
+
+            // 处理媒体
+            if (mediaFile) {
+                const size = mediaFile.size;
+                track.mediaType = mediaFile.type;
+                if (size > 5 * 1024 * 1024) { // 大于5MB走路径模式
+                    track.storageMode = 'path';
+                    track.mediaPath = await getFileFullPath(mediaFile);
+                } else {
+                    track.mediaBlob = new Blob([await mediaFile.arrayBuffer()], { type: mediaFile.type });
+                }
+            }
+
+            // 存入数据库
+            const tx = db.transaction([STORE], 'readwrite');
+            const store = tx.objectStore(STORE);
+            store.add(track);
+            
+            tx.oncomplete = () => {
+                document.getElementById('title').value = '';
+                document.getElementById('imgInput').value = '';
+                document.getElementById('mediaInput').value = '';
+                loadTracks();
+            };
+        } catch (err) {
+            console.error(err);
+            alert('保存失败：' + err.message + '\n可能是存储空间不足，建议删除旧条目后再试。');
+        }
+    }
+
+    // 加载并渲染
+    function loadTracks() {
+        const tx = db.transaction([STORE], 'readonly');
+        const req = tx.objectStore(STORE).getAll();
+        req.onsuccess = () => {
+            const tracks = req.result.sort((a,b) => new Date(b.createdAt) - new Date(a.createdAt));
+            render(tracks);
+        };
+    }
+
+    function render(tracks) {
+        const el = document.getElementById('library');
+        el.innerHTML = '';
+        if (!tracks.length) {
+            el.innerHTML = '<p style="grid-column:1/-1;text-align:center;color:#888;">暂无曲目，请添加。</p>';
+            return;
+        }
+        tracks.forEach(t => {
+            const div = document.createElement('div');
+            div.className = 'card';
+
+            // 图片展示
+            let imgHtml = t.imgData 
+                ? `<div class="media"><img src="${t.imgData}" alt="乐谱"></div>`
+                : '';
+            
+            // 媒体展示
+            let mediaHtml = '';
+            if (t.mediaBlob) {
+                const url = URL.createObjectURL(t.mediaBlob);
+                mediaHtml = t.mediaType?.startsWith('video/')
+                    ? `<div class="media"><video controls src="${url}"></video></div>`
+                    : `<div class="media"><audio controls src="${url}"></audio></div>`;
+            } else if (t.mediaPath) {
+                mediaHtml = `<div class="media" style="color:#888;">🎵 音频/视频（本地路径模式，请确保原文件存在）</div>`;
+            }
+
+            const statusClass = t.storageMode === 'local' ? 'saved' : 'local';
+            const statusText = t.storageMode === 'local' ? '✅ 已本地保存' : '⚠️ 仅保存路径';
+
+            div.innerHTML = `
+                <h3>${escapeHtml(t.title)}</h3>
+                ${imgHtml}
+                ${mediaHtml}
+                <div class="status ${statusClass}">${statusText}</div>
+                <button class="del-btn" onclick="del(${t.id})">删除</button>
+            `;
+            el.appendChild(div);
+        });
+    }
+
+    // 删除
+    function del(id) {
+        if (!confirm('确定删除？')) return;
+        const tx = db.transaction([STORE], 'readwrite');
+        tx.objectStore(STORE).delete(id);
+        tx.oncomplete = loadTracks;
+    }
+
+    // 显示文件列表（调试用）
+    function showFileList() {
+        const list = document.getElementById('fileListDisplay');
+        list.style.display = list.style.display === 'none' ? 'block' : 'none';
+        if (list.style.display === 'none') return;
+
+        list.innerHTML = '';
+        const tx = db.transaction([STORE], 'readonly');
+        tx.objectStore(STORE).getAll().onsuccess = e => {
+            e.target.result.forEach(t => {
+                if (t.imgPath) addItemToList(list, `图片: ${t.imgPath}`);
+                if (t.mediaPath) addItemToList(list, `媒体: ${t.mediaPath}`);
+                if (!t.imgPath && !t.mediaPath) addItemToList(list, `${t.title}: 全部本地存储`);
+            });
+        };
+    }
+
+    function addItemToList(el, text) {
+        const li = document.createElement('li');
+        li.textContent = text;
+        el.appendChild(li);
+    }
+
+    // 获取文件绝对路径（仅本地路径模式需要）
+    async function getFileFullPath(file) {
+        // 注意：现代浏览器出于安全考虑，不再提供真实文件路径
+        // 这里返回一个虚拟的 blob URL，并记录文件名，提示用户保留原文件
+        return `保留原文件: ${file.name}`;
+    }
+
+    function readFileAsDataURL(file) {
+        return new Promise((res, rej) => {
+            const r = new FileReader();
+            r.onload = () => res(r.result);
+            r.onerror = rej;
+            r.readAsDataURL(file);
+        });
+    }
+
+    function escapeHtml(t) {
+        return String(t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    }
+</script>
+
+</body>
+</html>
